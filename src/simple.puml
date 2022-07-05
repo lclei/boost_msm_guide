@@ -1,0 +1,6 @@
+@startuml
+!theme plain
+state State1 : initial_state
+state End : terminal
+State1 -> End : Event1
+@enduml
