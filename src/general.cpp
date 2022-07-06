@@ -22,13 +22,13 @@ namespace {
         virtual ~BaseState() {}
         template<class Event, class Fsm>
         void on_entry(Event const &event, Fsm &fsm) {
-            std::cout << "...Entering " << get_typename(*this)
+            std::cout << "[state]...Entering " << get_typename(*this)
                     << " by " << get_typename(event) << "\n";
             prepare(fsm.ctx);
         }
         template<class Event, class Fsm>
         void on_exit(Event const &event, Fsm &fsm) {
-            std::cout << "...Leaving " << get_typename(*this)
+            std::cout << "[state]...Leaving " << get_typename(*this)
                     << " by " << get_typename(event) << "\n";
             clean(fsm.ctx);
         }
@@ -42,15 +42,15 @@ namespace {
     // ---State Machine front-end
     struct Sm : boost::msm::front::state_machine_def<Sm>
     {
-        // States
+        // ---States
         struct State1 : BaseState {};
 
         struct End : boost::msm::front::terminate_state<> {};
 
-        // Set initial state
+        // ---Set initial state
         using initial_state = State1;
 
-        // Transition Table
+        // ---Transition Table
         struct transition_table : boost::mpl::vector<
             //    Start | Event | Next | Action | Guard
             _row< State1, Event1, End                  >
@@ -59,7 +59,7 @@ namespace {
         Context ctx;
     };
 
-    // Pick a back-end
+    // ---Pick a back-end
     using Fsm = boost::msm::back::state_machine<Sm>;
 
     void test() {

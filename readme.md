@@ -117,13 +117,13 @@ struct BaseState : boost::msm::front::state<> {
     virtual ~BaseState() {}
     template<class Event, class Fsm>
     void on_entry(Event const &event, Fsm &fsm) {
-        std::cout << "...Entering " << get_typename(*this)
+        std::cout << "[state]...Entering " << get_typename(*this)
                 << " by " << get_typename(event) << "\n";
         prepare(fsm.ctx);
     }
     template<class Event, class Fsm>
     void on_exit(Event const &event, Fsm &fsm) {
-        std::cout << "...Leaving " << get_typename(*this)
+        std::cout << "[state]...Leaving " << get_typename(*this)
                 << " by " << get_typename(event) << "\n";
         clean(fsm.ctx);
     }
@@ -131,12 +131,172 @@ struct BaseState : boost::msm::front::state<> {
     virtual void clean(Context &) {}
 };
 ```
+现在，我们的状态机得以精简
+```cpp    struct Sm : boost::msm::front::state_machine_def<Sm>
+    {
+    // ---States
+    struct State1 : BaseState {};
+    struct End : boost::msm::front::terminate_state<> {};
+
+    // ---Set initial state
+    using initial_state = State1;
+
+    // ---Transition Table
+    struct transition_table : boost::mpl::vector<
+        //    Start | Event | Next | Action | Guard
+        _row< State1, Event1, End                  >
+    > {};
+
+    Context ctx;
+};
+
+// ---Pick a back-end
+using Fsm = boost::msm::back::state_machine<Sm>;
+```
+打印是
+```
+[state]...Entering State1 by InitEvent
+> Send Event1
+[state]...Leaving State1 by Event1
+```
+值得注意的是InitEvent，它是从哪来的？我们的transition_table并没有定义这个事件！实际上，这是Fsm进入initial_state的默认触发事件。
 
 ## Action
 
+Action发生在离开状态后，进入下一状态前。可以使用一个Functor class来表示。和State一样，这里定义一个BaseAction的类。
+
+```cpp
+struct BaseAction {
+    virtual ~BaseAction() {}
+    template<class Event, class Fsm, class SourceState, class TargetState>
+    void operator()(Event const &event, Fsm &fsm, SourceState const &from, TargetState const &to) {
+        std::cout >> "[action] Do " >> get_typename(*this) >> " from " >>
+                >> get_typename(from) >> " to " >> get_typename(to) >>
+                >> " by " >> get_typename(event) >> "\n";
+        execute(fsm.ctx);
+    }
+    virtual void execute(Context &) {}
+};
+```
+
 ## Guard
 
+Guard发生在离开状态前，返回一个bool值，如果为true，则可以转移，否则保持在原状态。
+
+```cpp
+struct BaseGuard {
+    virtual ~BaseGuard() {}
+    template<class Event, class Fsm, class SourceState, class TargetState>
+    bool operator()(Event const &event, Fsm &fsm, SourceState const &from, TargetState const &to) {
+        bool ok = execute(fsm.ctx);
+        std::cout << "[guard] " << get_typename(*this) << " -> " << std::boolalpha << ok
+                << " from " << get_typename(from) << " to " << get_typename(to)
+                << " by " << get_typename(event) << "\n";
+        return ok;
+    }
+    virtual bool execute(Context &) {return true;}
+};
+```
+
 ## transition_table
+
+状态转移表的完整形态是5个元素：
+fromState， Event， ToState， Action， Guard
+一般使用functor_row里的boost::msm::front::Row来定义转移表的每一行。其中空的要素使用boost::msm::front::none来表示。
+可以使用using来简化这个两个类型
+```cpp
+template<typename... T>
+using Row = boost::msm::front::Row<T...>;
+
+using None = boost::msm::front::none;
+```
+至此我们可以写一个完整的状态了。
+
+```plantuml
+@startuml
+state Init : initial_state
+state State1
+state State2
+state End : terminate_state
+Init -> State1
+State1 -> State2 : [Guard1]Event1/Action1
+State2 -> End : Event2/Action2
+@enduml
+```
+
+代码为
+```cpp
+// ---State Machine front-end
+struct Sm : boost::msm::front::state_machine_def<Sm>
+{
+    // ---States
+    struct State1 : BaseState {};
+    struct State2 : BaseState {};
+    struct Init : BaseState {};
+    struct End : boost::msm::front::terminate_state<> {};
+
+    // ---Events
+    struct Event1 {};
+    struct Event2 {};
+
+    // ---Actions
+    struct Action1 : BaseAction {};
+    struct Action2 : BaseAction {};
+
+    // ---Guard
+    struct Guard1 : BaseGuard {};
+    struct GTrue : BaseGuard {};
+    struct GFalse : BaseGuard {
+        bool execute(Context &) override {
+            return false;
+        }
+    };
+
+    // ---Set initial state
+    using initial_state = Init;
+
+    template<typename... T>
+    using Row = boost::msm::front::Row<T...>;
+    using None = boost::msm::front::none;
+
+    // ---Transition Table
+    struct transition_table : boost::mpl::vector<
+        //   Start * Event * Next  * Action * Guard
+        Row< Init,   None,   State1, None,    None   >,
+        Row< State1, Event1, State2, Action1, Guard1 >,
+        Row< State2, Event2, End,    Action2, None   >
+    > {};
+
+    Context ctx;
+};
+
+// ---Pick a back-end
+using Fsm = boost::msm::back::state_machine<Sm>;
+
+void test() {
+    Fsm fsm;
+    fsm.start();
+    std::cout << "> Send Event1\n";
+    fsm.process_event(Event1{});
+    std::cout << "> Send Event2\n";
+    fsm.process_event(Event2{});
+}
+```
+
+输出为
+```
+[state]...Entering Init by InitEvent
+[state]...Leaving Init by none
+[state]...Entering State1 by none
+> Send Event1
+[guard] Guard1 -> true from State1 to State2 by Event1
+[state]...Leaving State1 by Event1
+[action] Do Action1 from State1 to State2 by Event1
+[state]...Entering State2 by Event1
+> Send Event2
+[state]...Leaving State2 by Event2
+[action] Do Action2 from State2 to End by Event2
+```
 
 ## if-else
 

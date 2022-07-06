@@ -10,7 +10,7 @@ namespace {
     // ---State Machine front-end
     struct Sm : boost::msm::front::state_machine_def<Sm>
     {
-        // States
+        // ---States
         struct State1 : boost::msm::front::state<> {
             // Entry Action
             template<class Event, class Fsm>
@@ -26,17 +26,17 @@ namespace {
 
         struct End : boost::msm::front::terminate_state<> {};
 
-        // Set initial state
+        // ---Set initial state
         using initial_state = State1;
 
-        // Transition Table
+        // ---Transition Table
         struct transition_table : boost::mpl::vector<
             //    Start | Event | Next | Action | Guard
             _row< State1, Event1, End                  >
         > {};
     };
 
-    // Pick a back-end
+    // ---Pick a back-end
     using Fsm = boost::msm::back::state_machine<Sm>;
 
     void test() {
