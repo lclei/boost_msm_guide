@@ -62,9 +62,18 @@ namespace {
     };
 
 
-        // ---Events
-        struct Event1 {};
-        struct Event2 {};
+    // ---Events
+    struct Event1 {};
+    struct Event2 {};
+    struct Event3 {};
+    struct Event4 {};
+    struct Event5 {};
+    struct Event6 {};
+
+    void sth_wrong() {
+        std::vector<int> a(1);
+        int i = a.at(2);
+    }
 
     // ---State Machine front-end
     struct Sm : boost::msm::front::state_machine_def<Sm>
@@ -74,10 +83,25 @@ namespace {
         struct State2 : BaseState {};
         struct Init : BaseState {};
         struct End : boost::msm::front::terminate_state<> {};
+        struct ExceptionOnEntry : BaseState {
+            void prepare(Context &) override {
+                sth_wrong();
+            }
+        };
+        struct ExceptionOnExit : BaseState {
+            void clean(Context &) override {
+                sth_wrong();
+            }
+        };
 
         // ---Actions
         struct Action1 : BaseAction {};
         struct Action2 : BaseAction {};
+        struct ExceptionAction : BaseAction {
+            void execute(Context &) override {
+                sth_wrong();
+            }
+        };
 
         // ---Guard
         struct Guard1 : BaseGuard {};
@@ -85,6 +109,12 @@ namespace {
         struct GFalse : BaseGuard {
             bool execute(Context &) override {
                 return false;
+            }
+        };
+        struct ExceptionGuard : BaseGuard {
+            bool execute(Context &) override {
+                sth_wrong();
+                return true;
             }
         };
 
@@ -99,9 +129,23 @@ namespace {
         struct transition_table : boost::mpl::vector<
             //   Start * Event * Next  * Action * Guard
             Row< Init,   None,   State1, None,    None   >,
-            Row< State1, Event1, State2, Action1, Guard1 >,
-            Row< State2, Event2, End,    Action2, None   >
+            Row< State1, Event1, ExceptionOnEntry, Action1, GTrue  >,
+            Row< State1, Event2, State2, ExceptionAction, GTrue >,
+            Row< State1, Event3, State2, Action1, ExceptionGuard >,
+            Row< State1, Event4, ExceptionOnExit, Action1, GTrue >,
+            Row< ExceptionOnExit, Event5, State1, Action1, GTrue >
         > {};
+
+        template<class Event, class Fsm>
+        void exception_caught (Event const& evt, Fsm& fsm,std::exception& e) {
+            std::cout << "catch exception " << e.what() << " while " << get_typename(evt)
+                << '\n';
+        }
+        template<class Event, class Fsm>
+        void no_transition(Event const& evt, Fsm &fsm, int x) {
+            std::cout << "No transition item for " << x
+                << " while " << get_typename(evt) << '\n';
+        }
 
         Context ctx;
     };
@@ -116,6 +160,14 @@ namespace {
         fsm.process_event(Event1{});
         std::cout << "> Send Event2\n";
         fsm.process_event(Event2{});
+        std::cout << "> Send Event3\n";
+        fsm.process_event(Event3{});
+        std::cout << "> Send Event4\n";
+        fsm.process_event(Event4{});
+        std::cout << "> Send Event5\n";
+        fsm.process_event(Event5{});
+        std::cout << "> Send Event1\n";
+        fsm.process_event(Event1{});
     }
 }
 

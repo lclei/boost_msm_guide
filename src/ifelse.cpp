@@ -61,10 +61,9 @@ namespace {
         virtual bool execute(Context &) {return true;}
     };
 
-
-        // ---Events
-        struct Event1 {};
-        struct Event2 {};
+    // ---Events
+    struct Event1 {};
+    struct Event2 {};
 
     // ---State Machine front-end
     struct Sm : boost::msm::front::state_machine_def<Sm>
@@ -73,11 +72,21 @@ namespace {
         struct State1 : BaseState {};
         struct State2 : BaseState {};
         struct Init : BaseState {};
+        struct IfState : BaseState {};
+        struct ElseState : BaseState {};
         struct End : boost::msm::front::terminate_state<> {};
 
         // ---Actions
-        struct Action1 : BaseAction {};
-        struct Action2 : BaseAction {};
+        struct SetVal1 : BaseAction {
+            void execute(Context &ctx) override {
+                ctx.val = 1;
+            }
+        };
+        struct SetVal2 : BaseAction {
+            void execute(Context &ctx) override {
+                ctx.val = 2;
+            }
+        };
 
         // ---Guard
         struct Guard1 : BaseGuard {};
@@ -85,6 +94,11 @@ namespace {
         struct GFalse : BaseGuard {
             bool execute(Context &) override {
                 return false;
+            }
+        };
+        struct IfGuard : BaseGuard {
+            bool execute(Context &ctx) override {
+                return ctx.val == 1;
             }
         };
 
@@ -98,24 +112,29 @@ namespace {
         // ---Transition Table
         struct transition_table : boost::mpl::vector<
             //   Start * Event * Next  * Action * Guard
-            Row< Init,   None,   State1, None,    None   >,
-            Row< State1, Event1, State2, Action1, Guard1 >,
-            Row< State2, Event2, End,    Action2, None   >
+            Row< Init   , Event1    , State1    , SetVal1   , None  >,
+            Row< Init   , Event2    , State1    , SetVal2   , None  >,
+            Row< State1 , None      , ElseState , None      , None  >,
+            Row< State1 , None      , IfState   , None      , IfGuard>,
+            Row< IfState, None      , Init      , None      , None  >,
+            Row< ElseState, None    , Init      , None      , None  >
         > {};
 
         Context ctx;
     };
 
-    // ---Pick a back-end
+    // ---Pick a backNoneNone
     using Fsm = boost::msm::back::state_machine<Sm>;
 
     void test() {
         Fsm fsm;
         fsm.start();
+        Event1 e1;
+        Event2 e2;
         std::cout << "> Send Event1\n";
-        fsm.process_event(Event1{});
+        fsm.process_event(e1);
         std::cout << "> Send Event2\n";
-        fsm.process_event(Event2{});
+        fsm.process_event(e2);
     }
 }
 

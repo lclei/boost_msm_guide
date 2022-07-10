@@ -99,8 +99,8 @@ namespace {
         struct transition_table : boost::mpl::vector<
             //   Start * Event * Next  * Action * Guard
             Row< Init,   None,   State1, None,    None   >,
-            Row< State1, Event1, State2, Action1, Guard1 >,
-            Row< State2, Event2, End,    Action2, None   >
+            Row< State1, Event1, State1, Action1, Guard1 >,
+            Row< State1, Event2, None  , Action2, GTrue  >
         > {};
 
         Context ctx;

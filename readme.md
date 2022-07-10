@@ -93,9 +93,11 @@ Entering State1
 Leaving State1
 ```
 
-## general
+## State
 
-为了后续更好的演示，我们定义一些base class执行一些基础的打印。  
+状态机的第一要素当然是状态，一个状态机的一生就是在各个状态间来来去去。状态间的迁移由Event事件触发，迁移中间可以执行Action，是否能迁移取决于Guard。每个状态带有on_entry和on_exit两个方法，顾名思义，在进入和离开时触发。
+
+为了后续更好的演示，我们定义一个base class执行一些基础的打印。  
 首先，获取type的名称。我们知道标准库中的`typeid(var).name()`方法可以获取到变量的类型名称，但是是内部的符号，我们可以通过boost::core::demangle方法来获取更易读的名称，同时把命名空间的前缀去掉。
 
 ```cpp
@@ -132,7 +134,8 @@ struct BaseState : boost::msm::front::state<> {
 };
 ```
 现在，我们的状态机得以精简
-```cpp    struct Sm : boost::msm::front::state_machine_def<Sm>
+```cpp
+    struct Sm : boost::msm::front::state_machine_def<Sm>
     {
     // ---States
     struct State1 : BaseState {};
@@ -300,4 +303,199 @@ void test() {
 
 ## if-else
 
+在transition_table中，在下方的row优先于上方的row先执行。  
+这一节通过实现一个if-else的逻辑来说明在transition_table里row的优先级。
+
+```plantuml
+@startuml
+state State1
+state IfState
+state ElseState
+Init --> State1 : Event1/SetVal1
+Init --> State1 : Event2/SetVal2
+State1 -left-> IfState : [if ctx.val == 1]/Action1
+State1 -> ElseState : else
+IfState -up-> Init
+ElseState -up-> Init
+@enduml
+```
+
+两个Action
+```cpp
+// ---Actions
+struct SetVal1 : BaseAction {
+    void execute(Context &ctx) override {
+        ctx.val = 1;
+    }
+};
+struct SetVal2 : BaseAction {
+    void execute(Context &ctx) override {
+        ctx.val = 2;
+    }
+};
+```
+
+Guard
+```cpp
+ struct IfGuard : BaseGuard {
+    bool execute(Context &ctx) override {
+        return ctx.val == 1;
+    }
+};
+```
+
+transition_table
+```cpp
+ // ---Transition Table
+struct transition_table : boost::mpl::vector<
+    //   Start * Event * Next  * Action * Guard
+    Row< Init   , Event1    , State1    , SetVal1   , None  >,
+    Row< Init   , Event2    , State1    , SetVal2   , None  >,
+    Row< State1 , None      , ElseState , None      , None  >,
+    Row< State1 , None      , IfState   , None      , IfGuard>,
+    Row< IfState, None      , Init      , None      , None  >,
+    Row< ElseState, None    , Init      , None      , None  >
+> {};
+```
+
+输出为
+```
+[state]...Entering Init by InitEvent
+> Send Event1
+[state]...Leaving Init by Event1
+[action] Do SetVal1 from Init to State1 by Event1
+[state]...Entering State1 by Event1
+[guard] IfGuard -> true from State1 to IfState by none
+[state]...Leaving State1 by none
+[state]...Entering IfState by none
+[state]...Leaving IfState by none
+[state]...Entering Init by none
+> Send Event2
+[state]...Leaving Init by Event2
+[action] Do SetVal2 from Init to State1 by Event2
+[state]...Entering State1 by Event2
+[guard] IfGuard -> false from State1 to IfState by none
+[state]...Leaving State1 by none
+[state]...Entering ElseState by none
+[state]...Leaving ElseState by none
+[state]...Entering Init by none
+```
+
+## 状态自转移
+
+转移到自己本身有两种方式，可以称为外部自转移和内部自转移。如
+`cpp
+// ---Transition Table
+struct transition_table : boost::mpl::vector<
+    //   Start * Event * Next  * Action * Guard
+    Row< Init,   None,   State1, None,    None   >,
+    Row< State1, Event1, State1, Action1, Guard1 >,
+    Row< State1, Event2, None  , Action2, GTrue  >
+> {};
+```
+1. start和next都是State1，此时会执行State1的on_exit和on_entry。
+2. next时None，不会执行on_exit和on_entry。
+
+```
+[state]...Entering Init by InitEvent
+[state]...Leaving Init by none
+[state]...Entering State1 by none
+> Send Event1
+[guard] Guard1 -> true from State1 to State1 by Event1
+[state]...Leaving State1 by Event1
+[action] Do Action1 from State1 to State1 by Event1
+[state]...Entering State1 by Event1
+> Send Event2
+[guard] GTrue -> true from State1 to State1 by Event2
+[action] Do Action2 from State1 to State1 by Event2
+```
+
 ## exception
+
+状态机的on_entry, on_exit, Action, Guard都可能抛出异常，不自己处理的话，程序会异常退出。可以通过自己定义exception_caught方法来自定义异常处理。
+另外我们可以重载no_transition的方法来处理没有对应状态转移规则的情况。
+例如：
+```cpp
+template<class Event, class Fsm>
+void exception_caught (Event const& evt, Fsm& fsm,std::exception& e) {
+    std::cout << "catch exception " << e.what() << " while " << get_typename(evt)
+        << '\n';
+}
+template<class Event, class Fsm>
+void no_transition(Event const& evt, Fsm &fsm, int x) {
+    std::cout << "No transition item for " << x
+        << " while " << get_typename(evt) << '\n';
+}
+```
+针对产生异常的不同时机，其表现有所不同。我们通过一个out_of_range的异常来看一下实际结果。
+
+```cpp
+void sth_wrong() {
+    std::vector<int> a(1);
+    int i = a.at(2);
+}
+struct ExceptionOnEntry : BaseState {
+    void prepare(Context &) override {
+        sth_wrong();
+    }
+};
+struct ExceptionOnExit : BaseState {
+    void clean(Context &) override {
+        sth_wrong();
+    }
+};
+struct ExceptionAction : BaseAction {
+    void execute(Context &) override {
+        sth_wrong();
+    }
+};
+struct ExceptionGuard : BaseGuard {
+    bool execute(Context &) override {
+        sth_wrong();
+        return true;
+    }
+};
+    // ---Transition Table
+struct transition_table : boost::mpl::vector<
+    //   Start * Event * Next  * Action * Guard
+    Row< Init,   None,   State1, None,    None   >,
+    Row< State1, Event1, ExceptionOnEntry, Action1, GTrue  >,
+    Row< State1, Event2, State2, ExceptionAction, GTrue >,
+    Row< State1, Event3, State2, Action1, ExceptionGuard >,
+    Row< State1, Event4, ExceptionOnExit, Action1, GTrue >,
+    Row< ExceptionOnExit, Event5, State1, Action1, GTrue >
+> {};
+```
+运行结果
+```
+[state]...Entering Init by InitEvent
+[state]...Leaving Init by none
+[state]...Entering State1 by none
+> Send Event1
+[guard] GTrue -> true from State1 to ExceptionOnEntry by Event1
+[state]...Leaving State1 by Event1
+[action] Do Action1 from State1 to ExceptionOnEntry by Event1
+[state]...Entering ExceptionOnEntry by Event1
+catch exception vector::_M_range_check: __n (which is 2) >= this->size() (which is 1) while Event1
+> Send Event2
+[guard] GTrue -> true from State1 to State2 by Event2
+[state]...Leaving State1 by Event2
+[action] Do ExceptionAction from State1 to State2 by Event2
+catch exception vector::_M_range_check: __n (which is 2) >= this->size() (which is 1) while Event2
+> Send Event3
+catch exception vector::_M_range_check: __n (which is 2) >= this->size() (which is 1) while Event3
+> Send Event4
+[guard] GTrue -> true from State1 to ExceptionOnExit by Event4
+[state]...Leaving State1 by Event4
+[action] Do Action1 from State1 to ExceptionOnExit by Event4
+[state]...Entering ExceptionOnExit by Event4
+> Send Event5
+[guard] GTrue -> true from ExceptionOnExit to State1 by Event5
+[state]...Leaving ExceptionOnExit by Event5
+catch exception vector::_M_range_check: __n (which is 2) >= this->size() (which is 1) while Event5
+> Send Event1
+No transition item for 2 while Event1
+```
+
+可以总结：
+一次状态迁移的过程分为guard->on_exit->action->on_entry。其中某一步抛出异常时，状态都会回到sourceState。
