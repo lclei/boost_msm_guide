@@ -217,6 +217,7 @@ using None = boost::msm::front::none;
 
 ```plantuml
 @startuml
+!theme plain
 state Init : initial_state
 state State1
 state State2
@@ -308,6 +309,7 @@ void test() {
 
 ```plantuml
 @startuml
+!theme plain
 state State1
 state IfState
 state ElseState
@@ -384,7 +386,7 @@ struct transition_table : boost::mpl::vector<
 ## 状态自转移
 
 转移到自己本身有两种方式，可以称为外部自转移和内部自转移。如
-`cpp
+```cpp
 // ---Transition Table
 struct transition_table : boost::mpl::vector<
     //   Start * Event * Next  * Action * Guard
